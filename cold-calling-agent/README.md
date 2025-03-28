@@ -26,7 +26,7 @@ The Cold Calling Agent is a Flask-based application designed to streamline and e
 1. **Clone the repository:**
 
    ```bash
-   git clone https://github.com/Binbasri-in/cold-calling-agent.git
+   git clone https://github.com/Frrostte/dynamic-call-engine.git
    cd cold-calling-agent
    ```
 
@@ -75,6 +75,4 @@ Contributions to the Cold Calling Agent are welcome. Please read our contributio
 
 Include license information here.
 
-## Contact
 
-For support or queries, please contact [mohammed.binbasri@gmail.com](mailto:mohammed.binbasri@gmail.com).
