@@ -1,0 +1,77 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<div class="container mt-4">
+    <h2>{% if form.instance.pk %}Edit{% else %}Create{% endif %} Campaign</h2>
+    <form method="post">
+        {% csrf_token %}
+        {% for field in form %}
+            <div class="mb-3">
+                <label for="{{ field.id_for_label }}" class="form-label">{{ field.label }}</label>
+
+                {% if field.name == 'starting_pitch' %}
+                    <div class="input-group">
+                        {{ field }}
+
+                        <button type="button" id="generate-pitch" class="btn btn-secondary">Generate</button>
+                    </div>
+                {% else %}
+                    {{ field }}
+                {% endif %}
+                {% if field.help_text %}
+                    <small class="form-text text-muted">{{ field.help_text }}</small>
+                {% endif %}
+                {% for error in field.errors %}
+                    <div class="alert alert-danger">{{ error }}</div>
+                {% endfor %}
+            </div>
+        {% endfor %}
+        <button type="submit" class="btn btn-primary">Save Campaign</button>
+        <a href="{% url 'campaign:campaign_list' %}" class="btn btn-secondary">Cancel</a>
+    </form>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    document.addEventListener('DOMContentLoaded', function() {
+        const generateButton = document.getElementById('generate-pitch');
+    
+        generateButton.addEventListener('click', function() {
+            const companyDetails = document.getElementById('id_company_details').value;
+            const productService = document.getElementById('id_product_service').value;
+            const marketingKeywords = document.getElementById('id_marketing_keywords').value;
+    
+            fetch('/campaigns/generate-pitch/', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRFToken': getCSRFToken()
+                },
+                body: JSON.stringify({
+                    company_details: companyDetails,
+                    product_service: productService,
+                    marketing_keywords: marketingKeywords
+                })
+            })
+            .then(response => response.json())
+            .then(data => {
+                console.log(data);
+                document.getElementById('id_starting_pitch').value = data.pitch;
+            })
+            .catch(error => console.error('Error:', error));
+        });
+    
+        function getCSRFToken() {
+            const cookies = document.cookie.split(';');
+            for (let cookie of cookies) {
+                const [name, value] = cookie.trim().split('=');
+                if (name === 'csrftoken') {
+                    return value;
+                }
+            }
+            return null;
+        }
+    });
+</script>
+{% endblock %}

@@ -1,0 +1,662 @@
+## cold_call_express/urls.py
+
+from django.contrib import admin
+from django.urls import path, include
+from django.views.generic import TemplateView
+from rest_framework.routers import DefaultRouter
+from django.conf import settings
+
+
+urlpatterns = [
+    path('admin/', admin.site.urls),
+    path('', TemplateView.as_view(template_name='home.html'), name='home'),
+    path('users/', include('users.urls')),
+    path('campaigns/', include('campaigns.urls')),
+    path('chatbot/', include('chatbot.urls')),
+]
+
+## campaigns/urls.py
+
+from django.urls import path
+from .views import (
+    CampaignListView, CampaignCreateView, CampaignUpdateView, 
+    CampaignDeleteView,CampaignDashboardView, GeneratePitchView,
+    CampaignStatusUpdateView, InitiateCampaignView, ContactCreateView,
+    ContactUpdateView, ContactDeleteView, CampaignDetailView, CSVUploadView
+)
+
+urlpatterns = [
+    path('', CampaignListView.as_view(), name='campaign_list'),
+    path('create/', CampaignCreateView.as_view(), name='campaign_create'),
+    path('<int:pk>/', CampaignDetailView.as_view(), name='campaign_detail'),
+    path('<int:pk>/update/', CampaignUpdateView.as_view(), name='campaign_update'),
+    path('<int:pk>/delete/', CampaignDeleteView.as_view(), name='campaign_delete'),
+    path('dashboard/', CampaignDashboardView.as_view(), name='campaign_dashboard'),
+    path('generate-pitch/', GeneratePitchView.as_view(), name='generate_pitch'),
+    path('<int:pk>/status/', CampaignStatusUpdateView.as_view(), name='campaign_status_update'),
+    path('<int:pk>/initiate/', InitiateCampaignView.as_view(), name='campaign_initiate'),
+    path('<int:campaign_pk>/contact/add/', ContactCreateView.as_view(), name='contact_create'),
+    path('contact/<int:pk>/update/', ContactUpdateView.as_view(), name='contact_update'),
+    path('contact/<int:pk>/delete/', ContactDeleteView.as_view(), name='contact_delete'),
+    path('<int:campaign_pk>/upload-csv/', CSVUploadView.as_view(), name='csv_upload'),
+]
+
+## campaigns/models.py
+
+from django.db import models
+from django.conf import settings
+
+class Campaign(models.Model):
+    STATUS_CHOICES = (
+        ('draft', 'Draft'),
+        ('in_progress', 'In Progress'),
+        ('completed', 'Completed'),
+    )
+
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
+    name = models.CharField(max_length=100)
+    company_details = models.TextField()
+    product_service = models.TextField()
+    marketing_keywords = models.TextField()
+    starting_pitch = models.TextField(blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    chatbot_interactions = models.IntegerField(default=0)
+    conversion_rate = models.FloatField(default=0.0)
+    average_interaction_duration = models.DurationField(null=True, blank=True)
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='draft')
+
+    def __str__(self):
+        return self.name
+
+class Contact(models.Model):
+    campaign = models.ForeignKey(Campaign, related_name='contacts', on_delete=models.CASCADE)
+    name = models.CharField(max_length=100)
+    phone_number = models.CharField(max_length=20)
+    email = models.EmailField(blank=True)
+    age = models.IntegerField(null=True, blank=True)
+    gender = models.CharField(max_length=10, blank=True)
+    location = models.CharField(max_length=100, blank=True)
+    call_status = models.CharField(max_length=20, default='pending')
+    call_recording_url = models.URLField(blank=True)
+
+    def __str__(self):
+        return f"{self.name} - {self.phone_number}"
+
+
+## campaigns/forms.py
+
+from django import forms
+from .models import Campaign, Contact
+
+class CampaignForm(forms.ModelForm):
+    class Meta:
+        model = Campaign
+        fields = ['name', 'company_details', 'product_service', 'marketing_keywords', 'starting_pitch']
+        widgets = {
+            'name': forms.TextInput(attrs={'class': 'form-control'}),
+            'company_details': forms.Textarea(attrs={'class': 'form-control', 'rows': 4, 'id': 'id_company_details' }),
+            'product_service': forms.Textarea(attrs={'class': 'form-control', 'rows': 4, 'id': 'id_product_service'}),
+            'marketing_keywords': forms.Textarea(attrs={'class': 'form-control', 'rows': 4, 'id': 'id_marketing_keywords'}),
+            'starting_pitch': forms.Textarea(attrs={'class': 'form-control', 'rows': 4, 'id': 'id_starting_pitch'}),
+        }
+
+class ContactForm(forms.ModelForm):
+    class Meta:
+        model = Contact
+        fields = ['name', 'phone_number', 'email', 'age', 'gender', 'location']
+        widgets = {
+            'name': forms.TextInput(attrs={'class': 'form-control'}),
+            'phone_number': forms.TextInput(attrs={'class': 'form-control'}),
+            'email': forms.EmailInput(attrs={'class': 'form-control'}),
+            'age': forms.NumberInput(attrs={'class': 'form-control'}),
+            'gender': forms.TextInput(attrs={'class': 'form-control'}),
+            'location': forms.TextInput(attrs={'class': 'form-control'}),
+        }
+        
+class CSVUploadForm(forms.Form):
+    csv_file = forms.FileField(
+        label='Select a CSV file',
+        help_text='File must be in CSV format with the following columns: name, phone_number, email, age, gender, location'
+    )
+
+
+## campaigns/views.py
+from django.views.generic import ListView, CreateView, UpdateView, DeleteView, DetailView, FormView, TemplateView
+from django.contrib.auth.mixins import LoginRequiredMixin
+from django.urls import reverse_lazy
+from django.shortcuts import get_object_or_404, redirect
+from django.db.models import Sum, Avg
+from django.http import JsonResponse
+from django.contrib import messages
+from django.views import View
+import json
+import csv
+import io
+
+from .models import Campaign, Contact
+from .forms import CampaignForm, ContactForm, CSVUploadForm
+from chatbot.utils import generate_text
+
+
+class CampaignListView(LoginRequiredMixin, ListView):
+    model = Campaign
+    template_name = 'campaigns/campaign_list.html'
+    context_object_name = 'campaigns'
+
+    def get_queryset(self):
+        return Campaign.objects.filter(user=self.request.user)
+
+
+class CampaignCreateView(LoginRequiredMixin, CreateView):
+    model = Campaign
+    form_class = CampaignForm
+    template_name = 'campaigns/campaign_form.html'
+    success_url = reverse_lazy('campaign_list')
+
+    def form_valid(self, form):
+        form.instance.user = self.request.user
+        return super().form_valid(form)
+    
+    
+class CampaignUpdateView(LoginRequiredMixin, UpdateView):
+    model = Campaign
+    form_class = CampaignForm
+    template_name = 'campaigns/campaign_form.html'
+    success_url = reverse_lazy('campaign_list')
+
+
+class CampaignDeleteView(LoginRequiredMixin, DeleteView):
+    model = Campaign
+    template_name = 'campaigns/campaign_confirm_delete.html'
+    success_url = reverse_lazy('campaign_list')
+
+
+class CampaignDashboardView(LoginRequiredMixin, TemplateView):
+    template_name = 'campaigns/dashboard.html'
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        user_campaigns = Campaign.objects.filter(user=self.request.user)
+        context['total_campaigns'] = user_campaigns.count()
+        context['total_interactions'] = user_campaigns.aggregate(Sum('chatbot_interactions'))['chatbot_interactions__sum'] or 0
+        context['average_conversion_rate'] = user_campaigns.aggregate(Avg('conversion_rate'))['conversion_rate__avg'] or 0
+        context['average_interaction_duration'] = user_campaigns.aggregate(Avg('average_interaction_duration'))['average_interaction_duration__avg']
+        context['recent_campaigns'] = user_campaigns.order_by('-created_at')[:5]
+        return context
+    
+
+class GeneratePitchView(LoginRequiredMixin, View):
+    def post(self, request, *args, **kwargs):
+        data = json.loads(request.body)
+        company_details = data.get('company_details', '')
+        product_service = data.get('product_service', '')
+        marketing_keywords = data.get('marketing_keywords', '')
+        print(company_details, product_service, marketing_keywords)
+        # Here you would make a call to your AI API
+        # For now, we'll just return a placeholder response
+        print('Generating pitch...')
+        response = generate_text(company_details, product_service, marketing_keywords)
+        print('Pitch generated:', response)
+        return JsonResponse({'pitch': response.replace("\n", " ").strip()})
+    
+
+class CampaignDetailView(LoginRequiredMixin, DetailView):
+    model = Campaign
+    template_name = 'campaigns/campaign_detail.html'
+    context_object_name = 'campaign'
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context['contacts'] = self.object.contacts.all()
+        context['contact_form'] = ContactForm()
+        context['csv_upload_form'] = CSVUploadForm()
+        return context
+
+
+class ContactCreateView(LoginRequiredMixin, CreateView):
+    model = Contact
+    form_class = ContactForm
+    template_name = 'campaigns/contact_form.html'
+
+    def form_valid(self, form):
+        campaign = get_object_or_404(Campaign, pk=self.kwargs['campaign_pk'])
+        form.instance.campaign = campaign
+        return super().form_valid(form)
+
+    def get_success_url(self):
+        return reverse_lazy('campaign_detail', kwargs={'pk': self.kwargs['campaign_pk']})
+
+
+class ContactUpdateView(LoginRequiredMixin, UpdateView):
+    model = Contact
+    form_class = ContactForm
+    template_name = 'campaigns/contact_form.html'
+
+    def get_success_url(self):
+        return reverse_lazy('campaign_detail', kwargs={'pk': self.object.campaign.pk})
+
+
+class ContactDeleteView(LoginRequiredMixin, DeleteView):
+    model = Contact
+    template_name = 'campaigns/contact_confirm_delete.html'
+
+    def get_success_url(self):
+        return reverse_lazy('campaign_detail', kwargs={'pk': self.object.campaign.pk})
+
+
+class CampaignStatusUpdateView(LoginRequiredMixin, View):
+    def post(self, request, pk):
+        campaign = get_object_or_404(Campaign, pk=pk)
+        new_status = request.POST.get('status')
+        if new_status in dict(Campaign.STATUS_CHOICES):
+            campaign.status = new_status
+            campaign.save()
+            return JsonResponse({'status': 'success', 'new_status': new_status})
+        return JsonResponse({'status': 'error', 'message': 'Invalid status'}, status=400)
+
+
+class InitiateCampaignView(LoginRequiredMixin, View):
+    def post(self, request, pk):
+        campaign = get_object_or_404(Campaign, pk=pk)
+        if campaign.status == 'draft' and campaign.starting_pitch and campaign.contacts.exists():
+            campaign.status = 'in_progress'
+            campaign.save()
+            # Here you would integrate with Twilio API to initiate calls
+            return JsonResponse({'status': 'success', 'message': 'Campaign initiated'})
+        return JsonResponse({'status': 'error', 'message': 'Unable to initiate campaign'}, status=400)
+    
+
+class CSVUploadView(LoginRequiredMixin, FormView):
+    form_class = CSVUploadForm
+    template_name = 'campaigns/csv_upload.html'
+
+    def form_valid(self, form):
+        campaign = get_object_or_404(Campaign, pk=self.kwargs['campaign_pk'])
+        csv_file = form.cleaned_data['csv_file']
+        
+        if not csv_file.name.endswith('.csv'):
+            messages.error(self.request, 'File is not CSV type')
+            return super().form_invalid(form)
+        
+        decoded_file = csv_file.read().decode('utf-8')
+        io_string = io.StringIO(decoded_file)
+        reader = csv.DictReader(io_string)
+        
+        required_columns = ['name', 'phone_number', 'email', 'age', 'gender', 'location']
+        if not all(column in reader.fieldnames for column in required_columns):
+            messages.error(self.request, 'CSV file does not have all required columns')
+            return super().form_invalid(form)
+        
+        for row in reader:
+            Contact.objects.create(
+                campaign=campaign,
+                name=row['name'],
+                phone_number=row['phone_number'],
+                email=row['email'],
+                age=row['age'] if row['age'] else None,
+                gender=row['gender'],
+                location=row['location']
+            )
+        
+        messages.success(self.request, 'Contacts uploaded successfully')
+        return redirect('campaign_detail', pk=campaign.pk)
+
+    def form_invalid(self, form):
+        messages.error(self.request, 'There was an error uploading the CSV file')
+        return super().form_invalid(form)
+
+
+## chatbot/urls.py
+
+from django.urls import path
+from .views import chatbot_view, chatbot_message, chat_history
+
+urlpatterns = [
+    path('<int:campaign_id>/', chatbot_view, name='chatbot_view'),
+    path('<int:campaign_id>/message/', chatbot_message, name='chatbot_message'),
+    path('<int:campaign_id>/history/', chat_history, name='chat_history'),
+]
+
+## chatbot/models.py
+
+from django.db import models
+from django.conf import settings
+from campaigns.models import Campaign
+
+class Conversation(models.Model):
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
+    campaign = models.ForeignKey(Campaign, on_delete=models.CASCADE)
+    start_time = models.DateTimeField(auto_now_add=True)
+    end_time = models.DateTimeField(null=True, blank=True)
+
+class Message(models.Model):
+    conversation = models.ForeignKey(Conversation, on_delete=models.CASCADE, related_name='messages')
+    content = models.TextField()
+    timestamp = models.DateTimeField(auto_now_add=True)
+    is_bot = models.BooleanField(default=False)
+
+
+## chatbot/utils.py
+
+from django.conf import settings
+import logging
+import requests
+import json
+
+logger = logging.getLogger(__name__)
+
+cloudflare_url = settings.CLOUDFLARE_URL
+
+def generate_bot_response(campaign, user_message, conversation_history, language='en'):
+    try:
+        conversation_context = "\n".join([f"{'Human' if not msg.is_bot else 'AI'}: {msg.content}" for msg in conversation_history])
+        prompt = f"""
+        You are an AI assistant for a cold-calling campaign. Use the following information to guide your responses:
+
+        Campaign: {campaign.name}
+        Company Details: {campaign.company_details}
+        Product/Service: {campaign.product_service}
+        Marketing Keywords: {campaign.marketing_keywords}
+
+        Always be polite and professional. If asked about personal information or topics unrelated to the campaign, politely redirect the conversation back to the product or service.
+
+        Previous conversation:
+        {conversation_context}
+
+        Human: {user_message}
+        AI:"""
+        try:
+            data = {'prompt': prompt, 'max_tokens': 100, 'temperature': 0.3}
+            response = requests.post(cloudflare_url, headers={'Authorization': f"Bearer {settings.CLOUDFLARE_API_TOKEN}"},
+                                    data=json.dumps(data)).json()
+            print(response["result"]["response"])
+            bot_response = response["result"]["response"]
+        except Exception as e:
+            logger.error(f"Error generating bot response from Cloudflare: {str(e)}")
+            bot_response = "I'm sorry, but I'm currently unable to generate a response."
+            
+        if language != 'en':
+            bot_response = translate_text(bot_response, language)
+        return bot_response
+    except Exception as e:
+        # Instead of print, use Django's logging mechanism
+        logger.error(f"Error generating bot response: {str(e)}")
+        raise  # Re-raise the exception to be handled by the caller
+
+
+def generate_text(company_details, product_service, marketing_keywords, language='en'):
+    try:
+        try:
+            prompt = f"""
+            Generate only text in a telephony way for a cold call. imagine that you are calling a potential customer regarding the following details:
+            Company Details: {company_details}
+            Product/Service: {product_service}
+            Marketing Keywords: {marketing_keywords}
+            
+            your name is Sara, now you are calling him, what would you say? (make sure to make your pitch concise, and end it with a question) make sure your response is very short
+            Sara:
+            """
+            data = {'prompt': prompt, 'max_tokens': 100}
+            response = requests.post(cloudflare_url, headers={'Authorization': f"Bearer {settings.CLOUDFLARE_API_TOKEN}"},
+                                    data=json.dumps(data)).json()
+            
+            print(response)
+            response = response["result"]["response"]
+            response.replace("\n", " ").strip()
+        except Exception as e:
+            logger.error(f"Error generating bot response from Cloudflare: {str(e)}")
+            print(e)
+            response = "I'm sorry, but I'm currently unable to generate a response."
+            
+        if language != 'en':
+            response = translate_text(response, language)
+        return response
+    except Exception as e:
+        # Instead of print, use Django's logging mechanism
+        logger.error(f"Error generating bot response: {str(e)}")
+        print(e)
+        raise  # Re-raise the exception to be handled by the caller
+
+def translate_text(text, target_language):
+    # Implement translation logic here (e.g., using Google Translate API)
+    # For now, we'll return the original text
+    return text
+
+
+## chatbot/views.py
+
+from django.shortcuts import render, get_object_or_404
+from django.contrib.auth.decorators import login_required
+from django.http import JsonResponse
+from django.db.models import F
+from .models import Conversation, Message
+from campaigns.models import Campaign
+from .utils import generate_bot_response
+import logging
+
+logger = logging.getLogger(__name__)
+
+@login_required
+def chatbot_view(request, campaign_id):
+    campaign = get_object_or_404(Campaign, id=campaign_id, user=request.user)
+    return render(request, 'chatbot/chatbot.html', {'campaign': campaign})
+
+
+@login_required
+def chatbot_message(request, campaign_id):
+    if request.method == 'POST':
+        try:
+            campaign = get_object_or_404(Campaign, id=campaign_id, user=request.user)
+            user_message = request.POST.get('message')
+            
+            conversation, created = Conversation.objects.get_or_create(
+                user=request.user,
+                campaign=campaign,
+                end_time__isnull=True
+            )
+            
+            Message.objects.create(conversation=conversation, content=user_message, is_bot=False)
+            
+            conversation_history = Message.objects.filter(conversation=conversation).order_by('timestamp')
+            bot_message = generate_bot_response(campaign, user_message, conversation_history)
+                    
+            Message.objects.create(conversation=conversation, content=bot_message, is_bot=True)
+            
+            # Increment the chatbot interactions count
+            campaign.chatbot_interactions = F('chatbot_interactions') + 1
+            campaign.save()
+        
+            return JsonResponse({'message': bot_message.replace("\n", " ").strip()})
+        except Exception as e:
+            logger.error(f"Failed to process message: {str(e)}")
+            return JsonResponse({'error': 'Failed to process your message, please try again later.'}, status=500)
+    return JsonResponse({'error': 'Invalid request'}, status=400)
+
+
+
+@login_required
+def chat_history(request, campaign_id):
+    campaign = get_object_or_404(Campaign, id=campaign_id, user=request.user)
+    conversation = Conversation.objects.filter(user=request.user, campaign=campaign).last()
+    
+    if conversation:
+        messages = Message.objects.filter(conversation=conversation).order_by('timestamp')
+        data = {
+            'messages': [
+                {'content': msg.content, 'is_bot': msg.is_bot, 'timestamp': msg.timestamp.isoformat()}
+                for msg in messages
+            ]
+        }
+    else:
+        # add the pitch into the conversation as first message to start the conversation
+        start_message = campaign.starting_pitch if campaign.starting_pitch else "Hello! How can I help you today?"
+        conversation, created = Conversation.objects.get_or_create(user=request.user, campaign=campaign)
+        message = Message.objects.create(conversation=conversation, content=start_message, is_bot=True)
+        data = {
+            'messages': [
+                {'content': message.content, 'is_bot': message.is_bot, 'timestamp': message.timestamp.isoformat()}
+            ]
+        }
+        
+    return JsonResponse(data)
+
+
+
+## users/urls.py
+
+from django.urls import path
+from .views import (
+    SignUpView, CustomLoginView, CustomLogoutView,
+    ProfileUpdateView
+)
+urlpatterns = [
+    path('signup/', SignUpView.as_view(), name='signup'),
+    path('login/', CustomLoginView.as_view(), name='login'),
+    path('logout/', CustomLogoutView.as_view(), name='logout'),
+    path('profile/', ProfileUpdateView.as_view(), name='profile'),
+]
+
+## users/views.py
+
+from django.urls import reverse_lazy
+from django.views.generic.edit import CreateView, UpdateView
+from django.contrib.auth.views import LoginView, LogoutView
+from .forms import CustomUserCreationForm
+from django.contrib.auth.mixins import LoginRequiredMixin
+from django.urls import reverse_lazy
+from .models import UserProfile
+from .forms import UserProfileForm
+
+class SignUpView(CreateView):
+    form_class = CustomUserCreationForm
+    success_url = reverse_lazy('login')
+    template_name = 'users/signup.html'
+
+class CustomLoginView(LoginView):
+    template_name = 'users/login.html'
+
+class CustomLogoutView(LogoutView):
+    template_name = 'users/logout.html'
+
+class ProfileUpdateView(LoginRequiredMixin, UpdateView):
+    model = UserProfile
+    form_class = UserProfileForm
+    template_name = 'users/profile_update.html'
+    success_url = reverse_lazy('profile')
+
+    def get_object(self, queryset=None):
+        return self.request.user.profile
+
+## users/models.py
+
+from django.db import models
+from django.contrib.auth.models import AbstractUser
+from django.db.models.signals import post_save
+from django.dispatch import receiver
+
+
+class CustomUser(AbstractUser):
+    # Add custom fields here
+    phone_number = models.CharField(max_length=15, blank=True)
+    company_name = models.CharField(max_length=100, blank=True)
+    
+
+class UserProfile(models.Model):
+    user = models.OneToOneField(CustomUser, on_delete=models.CASCADE, related_name='profile')
+    bio = models.TextField(max_length=500, blank=True)
+    preferred_language = models.CharField(max_length=10, default='en')
+    notification_preferences = models.JSONField(default=dict)
+
+
+@receiver(post_save, sender=CustomUser)
+def create_user_profile(sender, instance, created, **kwargs):
+    if created:
+        UserProfile.objects.create(user=instance)
+
+
+@receiver(post_save, sender=CustomUser)
+def save_user_profile(sender, instance, **kwargs):
+    instance.profile.save()
+
+## templates/base.html
+
+{% load static %}
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}Cold-Call Express{% endblock %}</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="{% static 'styles.css' %}">  <!-- Correct path depending on your STATICFILES_DIRS -->
+
+    <style>
+        body {
+            padding-top: 60px;
+        }
+    </style>
+</head>
+<body>
+    <nav class="navbar navbar-expand-lg navbar-light bg-light">
+        <div class="container">
+            <a class="navbar-brand" href="{% url 'home' %}">Cold-Call Express</a>
+            <div class="navbar-nav">
+                {% if user.is_authenticated %}
+                    <a class="nav-item nav-link" href="{% url 'campaign_dashboard' %}">Dashboard</a>
+                    <a class="nav-item nav-link" href="{% url 'campaign_list' %}">Campaigns</a>
+                    <a class="nav-item nav-link" href="{% url 'logout' %}">Logout</a>
+                {% else %}
+                    <a class="nav-item nav-link" href="{% url 'login' %}">Login</a>
+                    <a class="nav-item nav-link" href="{% url 'signup' %}">Sign Up</a>
+                {% endif %}
+            </div>
+        </div>
+    </nav>
+    <div class="container mt-4">
+        {% block content %}
+        {% endblock %}
+    </div>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>
+
+## templates/home.html
+
+{% extends 'base.html' %}
+
+{% block content %}
+<h1>Welcome to Cold-Call Express</h1>
+<p>Revolutionize your cold calling strategy with AI-powered assistance.</p>
+{% if user.is_authenticated %}
+    <a href="{% url 'campaign_list' %}" class="btn btn-primary">View Campaigns</a>
+{% else %}
+    <a href="{% url 'signup' %}" class="btn btn-primary">Get Started</a>
+{% endif %}
+{% endblock %}
+
+
+## templates/campaign_form.html
+
+{% extends 'base.html' %}
+
+{% block content %}
+<h2>{% if form.instance.pk %}Edit{% else %}Create{% endif %} Campaign</h2>
+<form method="post">
+    {% csrf_token %}
+    {% for field in form %}
+        <div class="mb-3">
+            <label for="{{ field.id_for_label }}" class="form-label">{{ field.label }}</label>
+            {{ field }}
+            {% if field.help_text %}
+                <small class="form-text text-muted">{{ field.help_text }}</small>
+            {% endif %}
+            {% for error in field.errors %}
+                <div class="alert alert-danger">{{ error }}</div>
+            {% endfor %}
+        </div>
+    {% endfor %}
+    <button type="submit" class="btn btn-primary">Save Campaign</button>
+</form>
+{% endblock %}

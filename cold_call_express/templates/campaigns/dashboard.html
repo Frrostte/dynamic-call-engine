@@ -1,0 +1,40 @@
+
+{% extends 'base.html' %}
+
+{% block content %}
+<h2>Campaign Dashboard</h2>
+<div class="row">
+    <div class="col-md-3">
+        <div class="card mb-3">
+            <div class="card-body">
+                <h5 class="card-title">Total Campaigns</h5>
+                <p class="card-text display-4">{{ total_campaigns }}</p>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card mb-3">
+            <div class="card-body">
+                <h5 class="card-title">Total Interactions</h5>
+                <p class="card-text display-4">{{ total_interactions }}</p>
+            </div>
+        </div>
+    </div>
+    
+    
+</div>
+<h3>Campaigns</h3>
+<div class="list-group">
+    {% for campaign in recent_campaigns %}
+    <a href="{% url 'campaign:campaign_update' campaign.id %}" class="list-group-item list-group-item-action">
+        <div class="d-flex w-100 justify-content-between">
+            <h5 class="mb-1">{{ campaign.name }}</h5>
+            <small>{{ campaign.created_at|date:"F d, Y" }}</small>
+        </div>
+        <p class="mb-1">Interactions: {{ campaign.chatbot_interactions }} </p>
+    </a>
+    {% empty %}
+    <p>No campaigns yet. <a href="{% url 'campaign:campaign_create' %}">Create one now</a>!</p>
+    {% endfor %}
+</div>
+{% endblock %}

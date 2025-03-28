@@ -1,0 +1,18 @@
+Examples that can be used in demo:
+1.
+BMS Institute of Technology and Management
+About: BMS Institutions takes pride in educating students since 1946 in various fields of Engineering and continues to provide world class education in the coming years with more emphasis on research and development. The history of BMS Educational Trust rewinds back to the year 1946 with the establishment of the first private engineering college in the country. BMSIT&M Alumni can be found all over the world.
+Product/Service: New program in the institute. Bachelor of Engineering IN COMPUTER SCIENCE & BUSINESS SYSTEMS - CSBS Computer Science and Business System (CSBS) is one of the popular courses among engineering aspirants which mainly focuses on computation, analysis of algorithms, programming languages, program design, software engineering, computer hardware, computer networks and problem solving skills. This program is for students who want to complete their higher studies
+Keywords: Engineering Education, Top-Ranked Institution, Accredited Programs, Industry-Focused Curriculum, Placements and Internship Opportunities
+
+2.
+Stop Breaches, Drive Business with CrowdStrike
+About: CrowdStrike is a leading cybersecurity company headquartered in Austin, Texas. They specialize in cloud-delivered endpoint protection and security.
+Product/Service:
+```
+CrowdStrike Falcon Platform:
+Cloud-based security platform that protects endpoints and workloads.
+Combines antivirus, endpoint detection and response (EDR), and 24/7 threat hunting.
+Focuses on rapid detection, automated prevention and remediation of cyberattacks.
+```
+Keywords: Cloud Security, Endpoint Protection, Threat Hunting, Breach Prevention, Next-Gen Antivirus, EDR (Endpoint Detection and Response), Managed Security Services

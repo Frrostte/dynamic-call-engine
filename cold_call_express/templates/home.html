@@ -1,0 +1,24 @@
+{% extends 'base.html' %}
+
+{% load static %}
+
+{% block content %}
+<div class="home-content text-center">
+    <h1 class="display-4">Welcome to Dynamic Call Engine</h1>
+    <p class="lead">Revolutionizing customer engagement calling with AI.</p>
+    <div class="mt-5">
+        {% if user.is_authenticated %}
+            <a href="{% url 'campaign:campaign_list' %}" class="btn btn-primary btn-lg">
+                <i class="fas fa-rocket"></i> View Campaigns
+            </a>
+        {% else %}
+            <a href="{% url 'users:signup' %}" class="btn btn-primary btn-lg">
+                <i class="fas fa-user-plus"></i> Signup
+            </a>
+        {% endif %}
+    </div>
+    <div class="mt-5">
+        <img src="{% static 'images/mini-phone.svg' %}" alt="Description of image" class="img-fluid"style="max-width: 200px;">
+    </div>
+</div>
+{% endblock %}

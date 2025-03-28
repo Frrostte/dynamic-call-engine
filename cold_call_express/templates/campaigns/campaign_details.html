@@ -1,0 +1,142 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<div class="container mt-4">
+    <div class="button-container mb-4">
+        <button id="initiateCampaign" class="btn btn-success m-3" {% if campaign.status != 'draft' or not campaign.starting_pitch or not contacts %}disabled{% endif %}>
+            Initiate Campaign
+        </button>
+
+        <a href="{% url 'campaign:campaign_update' campaign.pk %}" class="btn btn-primary m-3">Edit Campaign</a>
+        <a href="{% url 'campaign:campaign_list' %}" class="btn btn-secondary m-3">Back to Campaigns</a>
+    </div>
+    <h2>{{ campaign.name }}</h2>
+    <p><strong>Status:</strong> <span id="campaignStatus">{{ campaign.get_status_display }}</span></p>
+    <p><strong>Company Details:</strong>  {{ campaign.company_details }}</p>
+    <p><strong>Product/Service:</strong>  {{ campaign.product_service }}</p>
+    <p><strong>Marketing Keywords:</strong>  {{ campaign.marketing_keywords }}</p>
+    <p><strong>Starting Pitch:</strong>  {{ campaign.starting_pitch }}</p>
+    
+    <!-- Toggle Button or Select Option for Adding the Pitch -->
+    <div class="form-group m-3">
+        <label for="addPitchOption"><strong>Include Starting Pitch:</strong></label>
+        <select id="addPitchOption" class="form-control w-50">
+            <option value="yes">Yes</option>
+            <option value="no">No</option>
+        </select>
+    </div>
+
+    <h3>Contacts</h3>
+    {% if contacts %}
+        <table class="table">
+            <thead>
+                <tr>
+                    <th>Name</th>
+                    <th>Phone Number</th>
+                    <th>Email</th>
+
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for contact in contacts %}
+                <tr>
+                    <td>{{ contact.name }}</td>
+                    <td>{{ contact.phone_number }}</td>
+                    <td>{{ contact.email }}</td>
+                    <td>
+                        <a href="{% url 'campaign:contact_update' contact.pk %}" class="btn btn-sm btn-primary">Edit</a>
+                        <a href="{% url 'campaign:contact_delete' contact.pk %}" class="btn btn-sm btn-danger">Delete</a>
+                        <button class="btn btn-sm btn-success" onClick="Mohammed()">Call</button>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    {% else %}
+        <p>No contacts added yet.</p>
+    {% endif %}
+
+    <h4>Add New Contact</h4>
+    <form method="post" action="{% url 'campaign:contact_create' campaign.pk %}">
+        {% csrf_token %}
+        {{ contact_form.as_p }}
+        <button type="submit" class="btn btn-primary">Add Contact</button>
+    </form>
+
+    <h4 class="mt-4">Upload Contacts from CSV</h4>
+    <form method="post" action="{% url 'campaign:csv_upload' campaign.pk %}" enctype="multipart/form-data">
+        {% csrf_token %}
+        {{ csv_upload_form.as_p }}
+        <button type="submit" class="btn btn-primary">Upload CSV</button>
+    </form>
+
+    
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+document.getElementById('initiateCampaign').addEventListener('click', function() {
+    const addPitch = document.getElementById('addPitchOption').value;
+    
+    fetch('{% url "campaign:campaign_initiate" campaign.pk %}', {
+        method: 'POST',
+        headers: {
+            'X-CSRFToken': '{{ csrf_token }}',
+        },
+        body: JSON.stringify({ add_pitch: addPitch })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.status === 'success') {
+            alert(data.message);
+            document.getElementById('campaignStatus').textContent = 'In Progress';
+            this.disabled = true;
+        } else {
+            alert(data.message);
+        }
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        alert('An error occurred. Please try again.');
+    });
+
+    sendPostRequest("+917760735073", "Mohammed Ali")
+});
+
+// Function to send the POST request with form data
+function sendPostRequest(phoneNumber, customerName) {
+    let formData = new FormData();
+    formData.append('phone_number', phoneNumber);
+    formData.append('customer_name', customerName);
+    
+    console.log(formData);
+    
+    fetch('https://dc5e-119-226-236-129.ngrok-free.app/call', {
+        method: 'POST',
+        body: formData,  // Send form data
+    })
+    .then(response => {console.log(response); response.json();})
+    .then(data => {
+        console.log(data);
+        if (data.status === 'success') {
+            alert(data.message);
+            document.getElementById('campaignStatus').textContent = 'In Progress';
+            document.getElementById('initiateCampaign').disabled = true;
+        } else {
+            alert(data.message);
+        }
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        alert('CALL INITIATED');
+    });
+}
+
+function Mohammed() {
+    sendPostRequest("+918310315257", "Aditya")
+}
+
+</script>
+{% endblock %}
